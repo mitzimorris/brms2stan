@@ -1,0 +1,195 @@
+---
+title: "BRMS to Stan:  Sleep Study Example"
+format:
+  html:
+    code-copy: true
+    code-overflow: wrap
+    toc: true
+editor_options: 
+  chunk_output_type: console
+---
+
+
+```{r}
+suppressMessages(library(brms))
+suppressMessages(library(lme4))
+suppressMessages(library(cmdstanr))
+suppressMessages(library(posterior))
+suppressMessages(library(bayesplot))
+suppressMessages(library(loo))
+
+options(digits=3)
+options(width = 120)
+options(scipen=20)
+
+options(mc.cores=4)
+
+# helper function
+ppc_central_interval <- function(y_rep, y) {
+    # Compute percentiles
+    q25 <- apply(y_rep, 2, quantile, probs = 0.25)
+    q75 <- apply(y_rep, 2, quantile, probs = 0.75)
+    
+    # Count observations within interval
+    within_50 <- sum(y >= q25 & y <= q75)
+    
+    # Return formatted string
+    sprintf("y total: %d, ct y is within y_rep central 50%% interval: %d, pct: %.2f",
+            length(y),
+            within_50,
+            100 * within_50 / length(y))
+}
+```
+
+
+### Data
+
+The data for the sleep study is included with the `lme4` package.
+
+```{r}
+names(sleepstudy)
+dim(sleepstudy)
+```
+
+The Stan model requires both the dimensions and the contents of this dataframe.
+
+<pre>
+data {
+  int<lower=0> N;                     // number of observations
+  int<lower=0> J;                     // number of subjects
+  array[N] int<lower=1, upper=J> subj;  // subject ID for each observation
+  vector[N] day;                      // day number (0-9)
+  vector[N] y;                 // reaction time outcome
+}
+</pre>
+
+Assemble this into a list to be passed to the `data` argument of CmdStanR's `sample` method.
+
+```{r}
+sleep_data = list(
+    N = nrow(sleepstudy),
+    J = length(unique(sleepstudy$Subject)),
+    subj = as.integer(sleepstudy$Subject),
+    day = sleepstudy$Days,
+    y = as.double(sleepstudy$Reaction))
+```
+
+### "Hello, World!"  `sleep_simple.stan`
+
+The model `stan/sleep_simple.stan` translates BRMS formula `Reaction ~ Days` to Stan.
+
+<pre>
+data {
+  int<lower=0> N;   vector[N] day;   vector[N] y;  // reaction time
+}
+transformed data {
+  real day_mean = mean(day);
+  vector[N] day_centered = day - day_mean;
+}
+parameters {
+  real alpha;  real b_day;  // intercept, slope
+  real<lower=0> sigma; // residual standard deviation
+}
+model {
+  y ~ normal(alpha + day_centered * b_day, sigma);
+  alpha ~ normal(250, 50);  // informed prior for human reaction times in ms
+  b_day ~ normal(10, 10);  // weakly informed prior for per-day effect
+  sigma ~ normal(0, 10);  // very weakly informative prior
+}
+generated quantities {
+  real b_intercept = alpha - b_day * day_mean;
+  array[N] real y_rep = normal_rng(alpha + day_centered * b_day, sigma);
+}
+</pre>
+
+```{r}
+# Stan complete pooling model
+sleep_simple = cmdstan_model("stan/sleep_simple.stan")
+sleep_simple_stanfit = sleep_simple$sample(data = sleep_data, refresh=500)
+as.data.frame(sleep_simple_stanfit$summary(variables = c('b_intercept', 'b_day', 'sigma')))
+```
+
+To compare the equivalent BRMS model:  `Reaction ~ Days`,
+we need to match the priors used in the Stan model.
+
+
+```{r}
+priors <- c(
+set_prior("normal(250, 50)", class = "Intercept"),
+set_prior("normal(10, 10)", class = "b"),
+set_prior("normal(0, 10)", class = "sigma")
+)
+```
+
+We run the model, and compare the BRMS results to the CmdStanR run.
+
+```{r}
+sleep_simple_brmsfit = brm(Reaction ~ Days, data = sleepstudy, prior = priors,
+                           save_pars = save_pars(all=TRUE))
+sleep_simple_brmsfit
+```
+```{r}
+as.data.frame(sleep_simple_stanfit$summary(variables = c('b_intercept', 'b_day', 'sigma')))
+```
+
+### Full model  `sleep_mlm.stan`
+
+```{r}
+sleep_mlm = cmdstan_model(stan_file = "stan/sleep_mlm.stan")
+sleep_mlm_stanfit = sleep_mlm$sample(data = sleep_data, refresh=500)
+as.data.frame(sleep_mlm_stanfit$summary(variables = c('b_intercept', 'b_day', 'sigma', 'sd_intercept', 'sd_day', 'cor_intercept_day')))
+```
+
+```{r}
+# BRMS multilevel model
+sleep_mlm_brmsfit <- brm(Reaction ~ Days + (Days|Subject),  data = sleepstudy, prior = priors,
+                         save_pars = save_pars(all=TRUE))
+sleep_mlm_brmsfit
+```
+
+
+
+### Model Comparison
+
+#### Posterior predictive checks
+
+If a model captures the data well, summary statistics such as sample mean and standard deviation
+of `y` and `y_rep` should have similar values.
+In particular, we expect that the observed `y` values fall within the 50% central interval
+of their corresponding `y_rep` sample at least 50% of the time.
+
+
+```{r}
+y_rep_simple <- as_draws_matrix(sleep_simple_stanfit$draws("y_rep"))
+ppc_central_interval(y_rep_simple, sleep_data$y)
+```
+
+
+```{r}
+y_rep_mlm <- as_draws_matrix(sleep_mlm_stanfit$draws("y_rep"))
+ppc_central_interval(y_rep_mlm, sleep_data$y)
+```
+
+#### LOO: leave-one-out Pareto-smoothed importance sampling
+
+Compare stanfit objects.
+
+```{r}
+loo_sleep_simple_stan <- loo(sleep_simple_stanfit$draws("log_lik"), save_psis = TRUE)
+loo_sleep_mlm_stan <- loo(sleep_mlm_stanfit$draws("log_lik"), save_psis = TRUE)
+
+loo_compare(loo_sleep_simple_stan, loo_sleep_mlm_stan)
+```
+
+Compare brmsfit objects.
+
+```{r}
+loo_sleep_simple <- loo(sleep_simple_brmsfit, moment_match = TRUE)
+loo_sleep_mlm <- loo(sleep_mlm_brmsfit, moment_match = TRUE)
+
+loo_compare(loo_sleep_simple, loo_sleep_mlm)
+```
+
+For the brmsfit objects, the `log_lik` input to LOO is computed using the posterior package and rvars, which may account for the difference between the estimates.
+For the stanfit objects, the LOO score and posterior predictive coverage tests both indicate the the simpler model provides better predictive accuracy; given the small number of subjects and observations in this study, this makes a lot of sense.
+

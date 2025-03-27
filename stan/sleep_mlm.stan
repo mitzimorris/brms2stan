@@ -28,11 +28,11 @@ parameters {
   vector<lower=0>[2] tau; // scale of random effects
 }
 transformed parameters {
-  // random effects matrix [intercept, slope] by subject
-  matrix[2, J] r = diag_pre_multiply(tau, L_Omega) * z;
+  // random effects matrix scaled, transposed
+  matrix[J, 2] r = (diag_pre_multiply(tau, L_Omega) * z)';
 }
 model {
-  y ~ normal(r[1, subj]' + b_intercept + (r[2, subj]' + b_day) .* day, sigma);
+  y ~ normal(r[subj,1] + b_intercept + (r[subj,2] + b_day) .* day, sigma);
 
   b_intercept ~ normal(250, 50);  // weakly informative prior for intercept
   b_day ~ normal(10, 10);         // weakly informative prior for day effect
@@ -47,16 +47,14 @@ generated quantities {
   matrix[2, 2] Omega;
   Omega = multiply_lower_tri_self_transpose(L_Omega);
   
-  // Get random effect variances
-  vector[2] sd_r = tau;
-  real sd_intercept = sd_r[1];
-  real sd_day = sd_r[2];
+  real sd_intercept = tau[1];
+  real sd_day = tau[2];
   real cor_intercept_day = Omega[1, 2];
 
   // Posterior predictive - new data y-tilde, given y
   vector[N] y_rep;
   {  // don't save to output
-    vector[N] eta = r[1, subj]' + b_intercept + (r[2, subj]' + b_day) .* day;
+    vector[N] eta = r[subj,2] + b_intercept + (r[subj,2] + b_day) .* day;
     y_rep = to_vector(normal_rng(eta, sigma));
   }
 }

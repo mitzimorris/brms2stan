@@ -165,8 +165,9 @@ priors <- c(
 set_prior("normal(250, 50)", class = "Intercept"),
 set_prior("normal(10, 10)", class = "b"),
 set_prior("exponential(1)", class = "sigma"),
-set_prior("cauchy(0, 25)", class = "sd"),
-set_prior("lkj_corr_cholesky(2)", class = "cor")
+set_prior("exponential(1)", class = "sd", group="Subject"),
+set_prior("lkj_corr_cholesky(2)", class = "cor"),
+set_prior("normal(0, 1)", class = "sd" )
 )
 ```
 
@@ -188,12 +189,12 @@ as.data.frame(sleep_mlm_stanfit$summary(variables = c('b_intercept', 'b_day', 's
 Do the priors in the BRMS implementation match the Stan priors?
 
 <pre>
+  nu ~ std_normal();
+  tau ~ exponential(1);
+  L_Omega ~ lkj_corr_cholesky(2);
   b_intercept ~ normal(250, 50);  // weakly informative prior for intercept
   b_day ~ normal(10, 10);         // weakly informative prior for day effect
-  
-  to_vector(z) ~ std_normal(); 
-  tau ~ cauchy(0, 25);
-  L_Omega ~ lkj_corr_cholesky(2);
+  to_vector(beta_std) ~ std_normal(); 
   sigma ~ exponential(1);
 </pre>
 
@@ -219,10 +220,22 @@ ppc_central_interval(y_rep_simple, sleep_data$y)
 y_rep_mlm <- as_draws_matrix(sleep_mlm_stanfit$draws("y_rep"))
 ppc_central_interval(y_rep_mlm, sleep_data$y)
 ```
-
-The posterior predictive coverage test indicates that the simpler model provides better predictive accuracy;
-given the small number of subjects and observations in this study, this makes a lot of sense.
+The posterior predictive checks are inconclusive; both models have similar coverage.
 
 Following the instructions in vignette [Writing Stan programs for use with the loo package](https://mc-stan.org/loo/articles/loo2-with-rstan.html),
 we can compute `log_lik`, the vector of per-observation likelihoods based on the current draw's regression coefficient estimates.
-Plugging the `log_lik` values into `loo_compare`, loo also reports that the simpler model is better calibrated for the data.
+Plugging the `log_lik` values into `loo_compare`, loo prefers the multi-level model, for both the Stan and BRMS fits.
+
+```{r}
+loo_sleep_simple_stan <- loo(sleep_simple_stanfit$draws("log_lik"), save_psis = TRUE)
+loo_sleep_mlm_stan <- loo(sleep_mlm_stanfit$draws("log_lik"), save_psis = TRUE)
+
+loo_compare(loo_sleep_simple_stan, loo_sleep_mlm_stan)
+```
+
+```{r}
+loo_sleep_simple_brms <- loo(sleep_simple_brmsfit)
+loo_sleep_mlm_brms <- loo(sleep_mlm_brmsfit)
+
+loo_compare(loo_sleep_simple_brms, loo_sleep_mlm_brms)
+```

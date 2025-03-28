@@ -17,5 +17,13 @@ model {
 }
 generated quantities {
   real b_intercept = alpha - b_day * day_mean;
-  array[N] real y_rep = normal_rng(alpha + day_centered * b_day, sigma);
+  vector[N] y_rep;
+  vector[N] log_lik;
+  {  // don't save to output
+    vector[N] eta = alpha + day_centered * b_day;
+    y_rep = to_vector(normal_rng(eta, sigma));
+    for (n in 1:N) {
+      log_lik[n] = normal_lpdf(y[n] | eta[n], sigma);
+    }
+  }
 }

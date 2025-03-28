@@ -53,8 +53,12 @@ generated quantities {
 
   // Posterior predictive - new data y-tilde, given y
   vector[N] y_rep;
+  vector[N] log_lik;
   {  // don't save to output
     vector[N] eta = r[subj,2] + b_intercept + (r[subj,2] + b_day) .* day;
     y_rep = to_vector(normal_rng(eta, sigma));
+    for (n in 1:N) {
+      log_lik[n] = normal_lpdf(y[n] | eta[n], sigma);
+    }
   }
 }

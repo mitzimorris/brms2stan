@@ -126,32 +126,82 @@ We run the model, and compare the BRMS results to the CmdStanR run.
 ```{r}
 sleep_simple_brmsfit = brm(Reaction ~ Days, data = sleepstudy, prior = priors,
                            save_pars = save_pars(all=TRUE))
+```
+
+BRMS posterior estimates.
+```{r}
 sleep_simple_brmsfit
 ```
+
+Stan posterior estimates.
 ```{r}
 as.data.frame(sleep_simple_stanfit$summary(variables = c('b_intercept', 'b_day', 'sigma')))
+```
+
+Do the priors in the BRMS implementation match the Stan priors?
+
+<pre>
+alpha ~ normal(250, 50);  // informed prior for human reaction times in ms
+b_day ~ normal(10, 10);  // weakly informed prior for per-day effect
+sigma ~ normal(0, 10);  // very weakly informative prior
+</pre>
+
+```{r}
+get_prior(sleep_simple_brmsfit)
 ```
 
 ### Full model  `sleep_mlm.stan`
 
 ```{r}
 sleep_mlm = cmdstan_model(stan_file = "stan/sleep_mlm.stan")
-sleep_mlm_stanfit = sleep_mlm$sample(data = sleep_data, refresh=500)
+sleep_mlm_stanfit = sleep_mlm$sample(data = sleep_data, refresh=500, show_exceptions=FALSE)
 as.data.frame(sleep_mlm_stanfit$summary(variables = c('b_intercept', 'b_day', 'sigma', 'sd_intercept', 'sd_day', 'cor_intercept_day')))
 ```
+
+To create the corresponding BRMS model, using the same priors, it is necessary to specify the following:
+
+```{r}
+priors <- c(
+set_prior("normal(250, 50)", class = "Intercept"),
+set_prior("normal(10, 10)", class = "b"),
+set_prior("exponential(1)", class = "sigma"),
+set_prior("cauchy(0, 25)", class = "sd"),
+set_prior("lkj_corr_cholesky(2)", class = "cor")
+)
+```
+
+With these priors, we set up the BRMS model which per-subject random effects for the intercept and slope.
 
 ```{r}
 # BRMS multilevel model
 sleep_mlm_brmsfit <- brm(Reaction ~ Days + (Days|Subject),  data = sleepstudy, prior = priors,
                          save_pars = save_pars(all=TRUE))
-sleep_mlm_brmsfit
 ```
 
+We compare the BRMS estimates to the Stan fit.
 
+```{r}
+sleep_mlm_brmsfit
+as.data.frame(sleep_mlm_stanfit$summary(variables = c('b_intercept', 'b_day', 'sigma', 'sd_intercept', 'sd_day', 'cor_intercept_day')))
+```
 
-### Model Comparison
+Do the priors in the BRMS implementation match the Stan priors?
 
-#### Posterior predictive checks
+<pre>
+  b_intercept ~ normal(250, 50);  // weakly informative prior for intercept
+  b_day ~ normal(10, 10);         // weakly informative prior for day effect
+  
+  to_vector(z) ~ std_normal(); 
+  tau ~ cauchy(0, 25);
+  L_Omega ~ lkj_corr_cholesky(2);
+  sigma ~ exponential(1);
+</pre>
+
+```{r}
+get_prior(sleep_mlm_brmsfit)
+```
+
+### Posterior predictive checks
 
 If a model captures the data well, summary statistics such as sample mean and standard deviation
 of `y` and `y_rep` should have similar values.
@@ -170,26 +220,9 @@ y_rep_mlm <- as_draws_matrix(sleep_mlm_stanfit$draws("y_rep"))
 ppc_central_interval(y_rep_mlm, sleep_data$y)
 ```
 
-#### LOO: leave-one-out Pareto-smoothed importance sampling
+The posterior predictive coverage test indicates that the simpler model provides better predictive accuracy;
+given the small number of subjects and observations in this study, this makes a lot of sense.
 
-Compare stanfit objects.
-
-```{r}
-loo_sleep_simple_stan <- loo(sleep_simple_stanfit$draws("log_lik"), save_psis = TRUE)
-loo_sleep_mlm_stan <- loo(sleep_mlm_stanfit$draws("log_lik"), save_psis = TRUE)
-
-loo_compare(loo_sleep_simple_stan, loo_sleep_mlm_stan)
-```
-
-Compare brmsfit objects.
-
-```{r}
-loo_sleep_simple <- loo(sleep_simple_brmsfit, moment_match = TRUE)
-loo_sleep_mlm <- loo(sleep_mlm_brmsfit, moment_match = TRUE)
-
-loo_compare(loo_sleep_simple, loo_sleep_mlm)
-```
-
-For the brmsfit objects, the `log_lik` input to LOO is computed using the posterior package and rvars, which may account for the difference between the estimates.
-For the stanfit objects, the LOO score and posterior predictive coverage tests both indicate the the simpler model provides better predictive accuracy; given the small number of subjects and observations in this study, this makes a lot of sense.
-
+Following the instructions in vignette [Writing Stan programs for use with the loo package](https://mc-stan.org/loo/articles/loo2-with-rstan.html),
+we can compute `log_lik`, the vector of per-observation likelihoods based on the current draw's regression coefficient estimates.
+Plugging the `log_lik` values into `loo_compare`, loo also reports that the simpler model is better calibrated for the data.

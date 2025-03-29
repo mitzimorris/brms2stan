@@ -105,7 +105,7 @@ generated quantities {
 ```{r}
 # Stan complete pooling model
 sleep_simple = cmdstan_model("stan/sleep_simple.stan")
-sleep_simple_stanfit = sleep_simple$sample(data = sleep_data, refresh=500)
+sleep_simple_stanfit = sleep_simple$sample(data = sleep_data, refresh=500, seed=6785678)
 as.data.frame(sleep_simple_stanfit$summary(variables = c('b_intercept', 'b_day', 'sigma')))
 ```
 
@@ -125,7 +125,7 @@ We run the model, and compare the BRMS results to the CmdStanR run.
 
 ```{r}
 sleep_simple_brmsfit = brm(Reaction ~ Days, data = sleepstudy, prior = priors,
-                           save_pars = save_pars(all=TRUE))
+                           save_pars = save_pars(all=TRUE), seed=678678)
 ```
 
 BRMS posterior estimates.
@@ -154,7 +154,7 @@ get_prior(sleep_simple_brmsfit)
 
 ```{r}
 sleep_mlm = cmdstan_model(stan_file = "stan/sleep_mlm.stan")
-sleep_mlm_stanfit = sleep_mlm$sample(data = sleep_data, refresh=500, show_exceptions=FALSE)
+sleep_mlm_stanfit = sleep_mlm$sample(data = sleep_data, refresh=500, show_exceptions=FALSE, seed=678678)
 as.data.frame(sleep_mlm_stanfit$summary(variables = c('b_intercept', 'b_day', 'sigma', 'sd_intercept', 'sd_day', 'cor_intercept_day')))
 ```
 
@@ -165,9 +165,8 @@ priors <- c(
 set_prior("normal(250, 50)", class = "Intercept"),
 set_prior("normal(10, 10)", class = "b"),
 set_prior("exponential(1)", class = "sigma"),
-set_prior("exponential(1)", class = "sd", group="Subject"),
+set_prior("exponential(1)", class = "sd"),
 set_prior("lkj_corr_cholesky(2)", class = "cor"),
-set_prior("normal(0, 1)", class = "sd" )
 )
 ```
 
@@ -176,7 +175,7 @@ With these priors, we set up the BRMS model which per-subject random effects for
 ```{r}
 # BRMS multilevel model
 sleep_mlm_brmsfit <- brm(Reaction ~ Days + (Days|Subject),  data = sleepstudy, prior = priors,
-                         save_pars = save_pars(all=TRUE))
+                         save_pars = save_pars(all=TRUE), seed = 678678)
 ```
 
 We compare the BRMS estimates to the Stan fit.
@@ -189,13 +188,13 @@ as.data.frame(sleep_mlm_stanfit$summary(variables = c('b_intercept', 'b_day', 's
 Do the priors in the BRMS implementation match the Stan priors?
 
 <pre>
-  nu ~ std_normal();
+  b_intercept ~ normal(250, 50);
+  b_day ~ normal(10, 10);
+  sigma ~ exponential(1);
+
   tau ~ exponential(1);
   L_Omega ~ lkj_corr_cholesky(2);
-  b_intercept ~ normal(250, 50);  // weakly informative prior for intercept
-  b_day ~ normal(10, 10);         // weakly informative prior for day effect
   to_vector(beta_std) ~ std_normal(); 
-  sigma ~ exponential(1);
 </pre>
 
 ```{r}

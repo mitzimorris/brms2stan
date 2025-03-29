@@ -7,15 +7,6 @@
  * - Subject-specific random intercepts and slopes
  * - Correlation between random effects
  *
- *
- * Need to account for global effects and group-level effects
- *
- * Likelihod:
- *   y[n] ~ normal(x[n] * beta[1:K, jj[n]], sigma) for n in 1:N
-
-
-
- *
  * The model uses a non-centered parameterization with Cholesky factorization
  * for numerical stability and efficiency.
  */
@@ -37,27 +28,25 @@ parameters {
   real<lower=0> sigma;
   
   // Subject-level effects - non-centered parameterization
-  vector[2] nu;                        // location of beta[ , j]
   vector<lower=0>[2] tau;              // scale of beta[ , j]
   cholesky_factor_corr[2] L_Omega;  // Cholesky factor of correlation matrix
   matrix[2, J] beta_std; // standardized random effects
 }
 transformed parameters {
-  // random effects matrix scaled, transposed
-  matrix[J, 2] beta = rep_matrix(nu, J)'
-    + (diag_pre_multiply(tau, L_Omega) * beta_std)';
+  // random effects matrix scaled, transposed  (centered at 0)
+  matrix[J, 2] beta = (diag_pre_multiply(tau, L_Omega) * beta_std)';
 }
 model {
-  nu ~ std_normal();
-  tau ~ exponential(1);
-  L_Omega ~ lkj_corr_cholesky(2);
-  b_intercept ~ normal(250, 50);  // weakly informative prior for intercept
-  b_day ~ normal(10, 10);         // weakly informative prior for day effect
-  to_vector(beta_std) ~ std_normal(); 
-  sigma ~ exponential(1);
-  
   vector[N] eta = b_intercept + b_day * day + rows_dot_product(x, beta[ subj, ]);
   y ~ normal(eta, sigma);
+
+  b_intercept ~ normal(250, 50);
+  b_day ~ normal(10, 10);
+  sigma ~ exponential(1);
+
+  tau ~ exponential(1);
+  L_Omega ~ lkj_corr_cholesky(2);
+  to_vector(beta_std) ~ std_normal(); 
 }
 generated quantities {
   // Reconstruct correlation matrix from Cholesky factor

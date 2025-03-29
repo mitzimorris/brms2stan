@@ -18,12 +18,15 @@ data {
   vector[N] y;                 // reaction time outcome
 }
 transformed data {
+  real day_mean = mean(day);
+  vector[N] day_c = day - day_mean;
+    
   matrix[N, 2] x;
   x[ , 1] = rep_vector(1, N);
-  x[ , 2] = day;
+  x[ , 2] = day_c;
 }
 parameters {
-  real b_intercept;  // global intercept
+  real alpha;  // global intercept
   real b_day; // global day effect
   real<lower=0> sigma;
   
@@ -37,10 +40,10 @@ transformed parameters {
   matrix[J, 2] beta = (diag_pre_multiply(tau, L_Omega) * beta_std)';
 }
 model {
-  vector[N] eta = b_intercept + b_day * day + rows_dot_product(x, beta[ subj, ]);
+  vector[N] eta = alpha + b_day * day_c + rows_dot_product(x, beta[ subj, ]);
   y ~ normal(eta, sigma);
 
-  b_intercept ~ normal(250, 50);
+  alpha ~ normal(250, 50);
   b_day ~ normal(10, 10);
   sigma ~ exponential(1);
 
@@ -53,6 +56,7 @@ generated quantities {
   matrix[2, 2] Omega;
   Omega = multiply_lower_tri_self_transpose(L_Omega);
   
+  real b_intercept = alpha - b_day * day_mean;
   real sd_intercept = tau[1];
   real sd_day = tau[2];
   real cor_intercept_day = Omega[1, 2];
@@ -61,7 +65,7 @@ generated quantities {
   vector[N] y_rep;
   vector[N] log_lik;
   {  // don't save to output
-    vector[N] eta = b_intercept + b_day * day + rows_dot_product(x, beta[ subj, ]);
+    vector[N] eta = alpha + b_day * day + rows_dot_product(x, beta[ subj, ]);
     y_rep = to_vector(normal_rng(eta, sigma));
     for (n in 1:N) {
       log_lik[n] = normal_lpdf(y[n] | eta[n], sigma);

@@ -166,7 +166,7 @@ set_prior("normal(250, 50)", class = "Intercept"),
 set_prior("normal(10, 10)", class = "b"),
 set_prior("exponential(1)", class = "sigma"),
 set_prior("exponential(1)", class = "sd"),
-set_prior("lkj_corr_cholesky(2)", class = "cor"),
+set_prior("lkj_corr_cholesky(2)", class = "cor")
 )
 ```
 

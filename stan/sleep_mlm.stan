@@ -18,6 +18,7 @@ data {
   vector[N] y;                 // reaction time outcome
 }
 transformed data {
+  int K = 2;  // number of covariates
   real day_mean = mean(day);
   vector[N] day_c = day - day_mean;
     
@@ -31,41 +32,41 @@ parameters {
   real<lower=0> sigma;
   
   // Subject-level effects - non-centered parameterization
-  vector<lower=0>[2] tau;              // scale of beta[ , j]
-  cholesky_factor_corr[2] L_Omega;  // Cholesky factor of correlation matrix
-  matrix[2, J] beta_std; // standardized random effects
+  vector[K] nu;                     // location of beta[ , j]
+  vector<lower=0>[K] tau;              // scale of beta[ , j]
+  cholesky_factor_corr[K] L_Omega;  // Cholesky factor of correlation matrix
+  matrix[K, J] beta_std; // standardized random effects
 }
 transformed parameters {
   // random effects matrix scaled, transposed  (centered at 0)
-  matrix[J, 2] beta = (diag_pre_multiply(tau, L_Omega) * beta_std)';
+  matrix[J, K] beta = (rep_matrix(nu, J) + (diag_pre_multiply(tau, L_Omega) * beta_std))';
 }
 model {
-  vector[N] eta = alpha + b_day * day_c + rows_dot_product(x, beta[ subj, ]);
+  vector[N] eta = alpha + day_c * b_day + rows_dot_product(x, beta[ subj, ]);
   y ~ normal(eta, sigma);
 
   alpha ~ normal(250, 50);
   b_day ~ normal(10, 10);
   sigma ~ exponential(1);
-
+  nu ~ std_normal();
   tau ~ exponential(1);
   L_Omega ~ lkj_corr_cholesky(2);
   to_vector(beta_std) ~ std_normal(); 
 }
 generated quantities {
   // Reconstruct correlation matrix from Cholesky factor
-  matrix[2, 2] Omega;
-  Omega = multiply_lower_tri_self_transpose(L_Omega);
+  matrix[K, K] Sigma = multiply_lower_tri_self_transpose(L_Omega);
   
   real b_intercept = alpha - b_day * day_mean;
   real sd_intercept = tau[1];
   real sd_day = tau[2];
-  real cor_intercept_day = Omega[1, 2];
+  real cor_intercept_day = Sigma[1, 2];
 
   // Posterior predictive - new data y-tilde, given y
   vector[N] y_rep;
   vector[N] log_lik;
   {  // don't save to output
-    vector[N] eta = alpha + b_day * day + rows_dot_product(x, beta[ subj, ]);
+    vector[N] eta = alpha + day_c * b_day + rows_dot_product(x, beta[ subj, ]);
     y_rep = to_vector(normal_rng(eta, sigma));
     for (n in 1:N) {
       log_lik[n] = normal_lpdf(y[n] | eta[n], sigma);

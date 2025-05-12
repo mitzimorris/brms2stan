@@ -219,7 +219,7 @@ ppc_central_interval(y_rep_simple, sleep_data$y)
 y_rep_mlm <- as_draws_matrix(sleep_mlm_stanfit$draws("y_rep"))
 ppc_central_interval(y_rep_mlm, sleep_data$y)
 ```
-The posterior predictive checks are inconclusive; both models have similar coverage.
+The posterior predictive checks show that the simple model is closer to the desired 50% coverage statistic.
 
 Following the instructions in vignette [Writing Stan programs for use with the loo package](https://mc-stan.org/loo/articles/loo2-with-rstan.html),
 we can compute `log_lik`, the vector of per-observation likelihoods based on the current draw's regression coefficient estimates.

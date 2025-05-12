@@ -165,7 +165,6 @@ priors <- c(
 set_prior("normal(250, 50)", class = "Intercept"),
 set_prior("normal(10, 10)", class = "b"),
 set_prior("exponential(1)", class = "sigma"),
-set_prior("exponential(1)", class = "sd"),
 set_prior("lkj_corr_cholesky(2)", class = "cor")
 )
 ```
@@ -174,8 +173,9 @@ With these priors, we set up the BRMS model which per-subject random effects for
 
 ```{r}
 # BRMS multilevel model
-sleep_mlm_brmsfit <- brm(Reaction ~ Days + (Days|Subject),  data = sleepstudy, prior = priors,
+sleep_mlm_brmsfit <- brm(Reaction ~ Days + (Days|Subject),  data = sleepstudy,#  prior = priors,
                          save_pars = save_pars(all=TRUE), seed = 678678)
+sleep_mlm_brmsfit
 ```
 
 We compare the BRMS estimates to the Stan fit.
